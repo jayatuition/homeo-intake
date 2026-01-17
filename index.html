@@ -1,0 +1,196 @@
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, addDoc } from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { UserPlus, CheckCircle, Loader2, Thermometer, Fingerprint } from 'lucide-react';
+
+// Use the global environment configuration for Firebase
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'homeo-shared-v1';
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(null);
+  const [formData, setFormData] = useState({ name: '', dob: '', gender: '', symptoms: '' });
+
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth error:", err);
+      }
+    };
+
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const generateLoginId = (name, dob) => {
+    if (!name || !dob) return '';
+    const prefix = name.trim().substring(0, 3).toUpperCase();
+    const dateObj = new Date(dob);
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    return `${prefix}${day}${month}`;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!user) {
+      alert("Authenticating... please try again in a second.");
+      return;
+    }
+    setLoading(true);
+    const submissionTime = new Date().toISOString();
+    const loginId = generateLoginId(formData.name, formData.dob);
+    
+    try {
+      // Mandatory Path: /artifacts/{appId}/public/data/patients
+      const patientsRef = collection(db, 'artifacts', appId, 'public', 'data', 'patients');
+      await addDoc(patientsRef, {
+        ...formData,
+        loginId,
+        caseNo: submissionTime,
+        status: 'pending',
+        timestamp: submissionTime
+      });
+      setSubmitted({ loginId, caseNo: submissionTime });
+    } catch (err) {
+      console.error(err);
+      alert("Submission error. Please check your database rules and configuration.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (submitted) {
+    return (
+      <div className="min-h-screen bg-emerald-50 flex items-center justify-center p-4 font-sans">
+        <div className="bg-white p-8 rounded-3xl shadow-xl text-center max-w-md w-full border border-emerald-100">
+          <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-slate-800">Registration Complete</h2>
+          <div className="my-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+            <div>
+              <p className="text-xs uppercase font-bold text-slate-400 tracking-wider">Your Login ID</p>
+              <p className="text-xl font-mono font-bold text-emerald-700">{submitted.loginId}</p>
+            </div>
+            <div className="pt-2 border-t border-slate-200">
+              <p className="text-xs uppercase font-bold text-slate-400 tracking-wider">Case Number</p>
+              <p className="text-[10px] font-mono text-slate-500 break-all">{submitted.caseNo}</p>
+            </div>
+          </div>
+          <p className="text-slate-600 text-sm">Save this ID for your consultation.</p>
+          <button 
+            onClick={() => setSubmitted(null)} 
+            className="mt-6 text-emerald-600 font-medium hover:underline"
+          >
+            New Report
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-8 font-sans text-slate-900">
+      <header className="mb-8 text-center">
+        <div className="bg-emerald-600 w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 shadow-lg shadow-emerald-200">
+          <Thermometer className="text-white w-7 h-7" />
+        </div>
+        <h1 className="text-2xl font-bold text-slate-800">Homeo Intake</h1>
+        <p className="text-slate-500 text-sm">Secure Digital Symptom Reporting</p>
+      </header>
+
+      <div className="bg-white w-full max-w-xl rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+        <form onSubmit={handleSubmit} className="p-6 sm:p-10 space-y-5">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Full Name</label>
+              <input 
+                required 
+                placeholder="Full Name" 
+                value={formData.name} 
+                onChange={e => setFormData({...formData, name: e.target.value})} 
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all" 
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Date of Birth</label>
+                <input 
+                  type="date" 
+                  required 
+                  value={formData.dob} 
+                  onChange={e => setFormData({...formData, dob: e.target.value})} 
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all" 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Gender</label>
+                <select 
+                  required 
+                  value={formData.gender} 
+                  onChange={e => setFormData({...formData, gender: e.target.value})} 
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                >
+                  <option value="">Select</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            {formData.name.length >= 3 && formData.dob && (
+              <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl flex items-center gap-3">
+                <Fingerprint className="text-emerald-600 w-5 h-5" />
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-emerald-600 leading-none mb-1">Generated Login ID</p>
+                  <p className="text-sm font-mono font-bold text-emerald-800 tracking-wider">
+                    {generateLoginId(formData.name, formData.dob)}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Symptom Description</label>
+              <textarea 
+                rows="5" 
+                required 
+                value={formData.symptoms} 
+                onChange={e => setFormData({...formData, symptoms: e.target.value})} 
+                placeholder="Describe your symptoms in detail..." 
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all resize-none" 
+              />
+            </div>
+          </div>
+
+          <button 
+            disabled={loading || !user} 
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-100 transition flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="animate-spin" /> : <UserPlus className="w-5 h-5" />} 
+            Submit Case
+          </button>
+        </form>
+      </div>
+      <p className="mt-8 text-xs text-slate-400 max-w-sm text-center italic">
+        Your unique Case Number and Login ID will be generated upon submission.
+      </p>
+    </div>
+  );
+}
